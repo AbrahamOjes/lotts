@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-lavender-50: #f0edff;
+  --color-lavender-100: #e4dfff;
+  --color-lavender-200: #cdc4ff;
+  --color-lavender-300: #a899ff;
+  --color-lavender-400: #8066ff;
+  --color-lavender-500: #6b4eff;
+  --color-accent: #1a1a2e;
+  --color-card: #ffffff;
+  --color-muted: #64748b;
+}
+
+body {
+  background: linear-gradient(180deg, #e8e4f7 0%, #dce5f9 30%, #f0f4ff 60%, #ffffff 100%);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* Premium gradient background that tiles on scroll */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #e0daef 0%, #d4ddf5 40%, #eef2ff 70%, #ffffff 100%);
+  z-index: -1;
+}
+
+/* Jackpot number shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.jackpot-number {
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  background: linear-gradient(
+    90deg,
+    #1a1a2e 0%,
+    #4a4a7a 20%,
+    #8888cc 40%,
+    #c0c0e0 50%,
+    #8888cc 60%,
+    #4a4a7a 80%,
+    #1a1a2e 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+/* Smooth card hover */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+}
+
+/* Pill button */
+.btn-primary {
+  background: #0f172a;
+  color: #ffffff;
+  border-radius: 9999px;
+  font-weight: 700;
+  padding: 16px 48px;
+  font-size: 1.125rem;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background: #1e293b;
+  transform: scale(1.02);
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9999px;
+  font-weight: 600;
+  padding: 10px 24px;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.btn-secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
