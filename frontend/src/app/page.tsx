@@ -1,25 +1,59 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useLottery } from "@/hooks/useLottery";
-import { formatUSD, progressPercent } from "@/lib/utils";
+import { formatUSD } from "@/lib/utils";
+
+function CountdownTimer({ seconds }: { seconds: bigint }) {
+  const [remaining, setRemaining] = useState(Number(seconds));
+
+  useEffect(() => {
+    setRemaining(Number(seconds));
+  }, [seconds]);
+
+  useEffect(() => {
+    if (remaining <= 0) return;
+    const timer = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [remaining]);
+
+  const h = Math.floor(remaining / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+
+  return (
+    <div className="flex items-center justify-center gap-3 text-center">
+      {[
+        { value: h, label: "HRS" },
+        { value: m, label: "MIN" },
+        { value: s, label: "SEC" },
+      ].map(({ value, label }) => (
+        <div key={label}>
+          <p className="text-3xl font-bold tabular-nums text-slate-900">
+            {String(value).padStart(2, "0")}
+          </p>
+          <p className="text-[10px] font-bold tracking-widest text-slate-400">{label}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function HomePage() {
-  const { roundId, jackpotAmount, targetPot, totalTickets, drawInProgress, isLoading } =
+  const { roundId, prizePool, totalTickets, drawInProgress, timeUntilDraw, isLoading } =
     useLottery();
-
-  const progress = progressPercent(jackpotAmount, targetPot);
 
   return (
     <div className="mx-auto max-w-2xl px-4">
       {/* Hero */}
       <section className="pt-16 pb-12 text-center">
         <p className="mb-4 text-sm font-bold uppercase tracking-[0.2em] text-slate-500">
-          The Internet Lottery
+          Daily Lottery
         </p>
 
         <h1 className="jackpot-number text-7xl sm:text-8xl md:text-9xl leading-none mb-6">
-          {isLoading ? "..." : formatUSD(jackpotAmount)}
+          {isLoading ? "..." : formatUSD(prizePool)}
         </h1>
 
         <div className="mb-8">
@@ -37,32 +71,62 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Progress */}
-        <div className="mx-auto mt-8 max-w-md">
-          <div className="mb-2 flex justify-between text-xs font-medium text-slate-400">
-            <span>{progress}% filled</span>
-            <span>Target: {formatUSD(targetPot)}</span>
+        {/* Countdown Timer */}
+        {!drawInProgress && timeUntilDraw > 0n && (
+          <div className="mx-auto mt-8 max-w-xs">
+            <p className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
+              Next Draw In
+            </p>
+            <CountdownTimer seconds={timeUntilDraw} />
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-violet-400 transition-all duration-700 ease-out"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Stats strip */}
       <section className="mb-16">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div className="card-hover rounded-2xl bg-white border border-slate-150 p-6 text-center shadow-sm">
             <p className="text-3xl font-bold text-slate-900">{totalTickets.toString()}</p>
             <p className="mt-1 text-sm text-slate-400">Tickets Sold</p>
           </div>
           <div className="card-hover rounded-2xl bg-white border border-slate-150 p-6 text-center shadow-sm">
+            <p className="text-3xl font-bold text-slate-900">34</p>
+            <p className="mt-1 text-sm text-slate-400">Winners / Draw</p>
+          </div>
+          <div className="card-hover rounded-2xl bg-white border border-slate-150 p-6 text-center shadow-sm">
             <p className="text-3xl font-bold text-slate-900">$1</p>
             <p className="mt-1 text-sm text-slate-400">Per Ticket</p>
           </div>
+        </div>
+      </section>
+
+      {/* Prize Tiers */}
+      <section className="mb-16">
+        <h2 className="mb-6 text-center text-2xl font-bold text-slate-900">Prize Tiers</h2>
+        <div className="grid gap-3">
+          {[
+            { tier: "Grand Prize", pool: "40%", winners: 1 },
+            { tier: "Tier 2", pool: "15%", winners: 1 },
+            { tier: "Tier 3", pool: "10%", winners: 2 },
+            { tier: "Tier 4", pool: "10%", winners: 2 },
+            { tier: "Tier 5", pool: "8%", winners: 3 },
+            { tier: "Tier 6", pool: "7%", winners: 5 },
+            { tier: "Tier 7", pool: "5%", winners: 7 },
+            { tier: "Tier 8", pool: "5%", winners: 13 },
+          ].map(({ tier, pool, winners }) => (
+            <div
+              key={tier}
+              className="flex items-center justify-between rounded-xl bg-white border border-slate-100 px-5 py-3 shadow-sm"
+            >
+              <span className="font-semibold text-slate-900">{tier}</span>
+              <div className="flex items-center gap-4 text-sm text-slate-500">
+                <span>{pool} of pot</span>
+                <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-bold text-indigo-600">
+                  {winners} winner{winners > 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -78,8 +142,8 @@ export default function HomePage() {
             },
             {
               step: "02",
-              title: "Pot fills up",
-              desc: "When the jackpot reaches the target, a draw triggers automatically.",
+              title: "Daily draws",
+              desc: "Every 24 hours, a draw triggers automatically. 34 winners picked!",
             },
             {
               step: "03",

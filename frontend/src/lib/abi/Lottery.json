@@ -28,7 +28,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "_targetPot",
+        "name": "_drawInterval",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "_minPotForDraw",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -57,19 +62,6 @@
   },
   {
     "type": "function",
-    "name": "GRAND_PRIZE_BPS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "JACKPOT_BPS",
     "inputs": [],
     "outputs": [
@@ -84,6 +76,19 @@
   {
     "type": "function",
     "name": "LP_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "NUM_TIERS",
     "inputs": [],
     "outputs": [
       {
@@ -122,7 +127,7 @@
   },
   {
     "type": "function",
-    "name": "SECONDARY_PRIZES",
+    "name": "TOTAL_WINNERS",
     "inputs": [],
     "outputs": [
       {
@@ -135,7 +140,7 @@
   },
   {
     "type": "function",
-    "name": "SECONDARY_PRIZE_BPS",
+    "name": "WINSHARE_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -271,6 +276,19 @@
   },
   {
     "type": "function",
+    "name": "drawInterval",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getCurrentRound",
     "inputs": [],
     "outputs": [
@@ -280,17 +298,17 @@
         "internalType": "uint256"
       },
       {
-        "name": "jackpotAmount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "roundTargetPot",
+        "name": "prizePool",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
         "name": "totalTickets",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "drawTime",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -319,7 +337,7 @@
     ],
     "outputs": [
       {
-        "name": "count",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -347,6 +365,59 @@
   },
   {
     "type": "function",
+    "name": "getRoundWinners",
+    "inputs": [
+      {
+        "name": "roundId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "winners",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "prizes",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "tierIndices",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getTierConfig",
+    "inputs": [
+      {
+        "name": "tierIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "poolBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "winnerCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lpVault",
     "inputs": [],
     "outputs": [
@@ -354,6 +425,19 @@
         "name": "",
         "type": "address",
         "internalType": "contract LPVault"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "minPotForDraw",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -406,6 +490,30 @@
   },
   {
     "type": "function",
+    "name": "playerTicketCount",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rawFulfillRandomWords",
     "inputs": [
       {
@@ -437,6 +545,78 @@
   },
   {
     "type": "function",
+    "name": "roundPrizes",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "roundWinnerTiers",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "roundWinners",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rounds",
     "inputs": [
       {
@@ -447,17 +627,17 @@
     ],
     "outputs": [
       {
-        "name": "targetPot",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "jackpotAmount",
+        "name": "prizePool",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
         "name": "totalTickets",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "drawTime",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -569,10 +749,23 @@
   },
   {
     "type": "function",
-    "name": "setTargetPot",
+    "name": "setDrawInterval",
     "inputs": [
       {
-        "name": "_targetPot",
+        "name": "_drawInterval",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setMinPotForDraw",
+    "inputs": [
+      {
+        "name": "_minPotForDraw",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -595,7 +788,7 @@
   },
   {
     "type": "function",
-    "name": "targetPot",
+    "name": "ticketPrice",
     "inputs": [],
     "outputs": [
       {
@@ -608,7 +801,31 @@
   },
   {
     "type": "function",
-    "name": "ticketPrice",
+    "name": "tiers",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "poolBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "winnerCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "timeUntilDraw",
     "inputs": [],
     "outputs": [
       {
@@ -723,25 +940,32 @@
         "internalType": "uint256"
       },
       {
-        "name": "grandWinner",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "grandPrize",
+        "name": "totalPrizesPaid",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "secondaryWinners",
-        "type": "address[5]",
+        "name": "totalWinSharePaid",
+        "type": "uint256",
         "indexed": false,
-        "internalType": "address[5]"
+        "internalType": "uint256"
       },
       {
-        "name": "secondaryPrize",
+        "name": "winnersCount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DrawIntervalUpdated",
+    "inputs": [
+      {
+        "name": "newInterval",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -761,6 +985,19 @@
       },
       {
         "name": "vrfRequestId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MinPotUpdated",
+    "inputs": [
+      {
+        "name": "newMinPot",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -855,26 +1092,13 @@
         "internalType": "uint256"
       },
       {
-        "name": "targetPot",
+        "name": "drawTime",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
         "name": "ticketPrice",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "TargetPotUpdated",
-    "inputs": [
-      {
-        "name": "newTarget",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -971,6 +1195,37 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "WinnerSelected",
+    "inputs": [
+      {
+        "name": "roundId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "winner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "prize",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AlreadyClaimed",
     "inputs": []
@@ -978,6 +1233,11 @@
   {
     "type": "error",
     "name": "DrawAlreadyInProgress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DrawNotReady",
     "inputs": []
   },
   {
@@ -992,7 +1252,7 @@
   },
   {
     "type": "error",
-    "name": "InvalidTargetPot",
+    "name": "InvalidDrawInterval",
     "inputs": []
   },
   {
@@ -1046,11 +1306,6 @@
         "internalType": "address"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "PotNotReached",
-    "inputs": []
   },
   {
     "type": "error",

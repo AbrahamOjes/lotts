@@ -12,9 +12,15 @@ import {LPVault} from "./LPVault.sol";
 import {ReferralManager} from "./ReferralManager.sol";
 
 /// @title Lottery
-/// @notice Megapot-style lottery on Polygon. $1 USDC tickets, draw when pot fills.
-///         Fee split: 70% jackpot, 20% LP yield, 10% referrals.
-///         Uses Chainlink VRF v2.5 for provably fair randomness and Chainlink Automation for draws.
+/// @notice On-chain lottery on Polygon, optimised for emerging-market scale.
+///
+///  Key features:
+///    - $1 USDC tickets (raffle model — no number picking)
+///    - Daily time-based draws via Chainlink Automation
+///    - 8 prize tiers (1 grand + 7 secondary) for frequent small wins
+///    - Win-share: 10% of each prize is sent to the winner's referral chain
+///    - Fee split: 70% prize pool, 20% LP yield, 10% referrals
+///    - Chainlink VRF v2.5 for provably fair randomness
 contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
@@ -23,17 +29,28 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     // ──────────────────────────────────────────────
 
     /// @notice Fee split basis points (out of 10000)
-    uint256 public constant JACKPOT_BPS = 7000;   // 70%
-    uint256 public constant LP_BPS = 2000;         // 20%
-    uint256 public constant REFERRAL_BPS = 1000;   // 10%
+    uint256 public constant JACKPOT_BPS = 7000;   // 70% → prize pool
+    uint256 public constant LP_BPS = 2000;         // 20% → LP vault
+    uint256 public constant REFERRAL_BPS = 1000;   // 10% → referrals
 
-    /// @notice Prize distribution from jackpot pot
-    uint256 public constant GRAND_PRIZE_BPS = 9000; // 90% of pot to grand winner
-    uint256 public constant SECONDARY_PRIZES = 5;   // 5 secondary winners
-    uint256 public constant SECONDARY_PRIZE_BPS = 200; // 2% each
+    /// @notice Win-share: 10% of each prize goes to referral chain
+    uint256 public constant WINSHARE_BPS = 1000;   // 10% of prize
 
-    /// @notice VRF needs 1 word for grand prize + 5 for secondary = 6
-    uint32 public constant NUM_WORDS = 6;
+    /// @notice 8 prize tiers. Index 0 = grand prize. BPS are out of 10000 (of the prize pool).
+    ///         Grand:  40%  (1 winner)
+    ///         Tier 1: 15%  (1 winner)
+    ///         Tier 2: 10%  (1 winner)
+    ///         Tier 3: 10%  (2 winners — each gets 5%)
+    ///         Tier 4:  8%  (3 winners — each gets ~2.67%)
+    ///         Tier 5:  7%  (5 winners — each gets 1.4%)
+    ///         Tier 6:  5%  (8 winners — each gets 0.625%)
+    ///         Tier 7:  5%  (13 winners — each gets ~0.385%)
+    ///         Total:  100% distributed across 34 winners
+    uint256 public constant NUM_TIERS = 8;
+    uint256 public constant TOTAL_WINNERS = 34;
+
+    /// @notice VRF needs one random word per winner
+    uint32 public constant NUM_WORDS = 34;
 
     // ──────────────────────────────────────────────
     //  Immutables
@@ -53,6 +70,18 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     uint16 public s_requestConfirmations;
 
     // ──────────────────────────────────────────────
+    //  Prize Tier Configuration
+    // ──────────────────────────────────────────────
+
+    struct TierConfig {
+        uint256 poolBps;       // % of prize pool allocated to this tier (out of 10000)
+        uint256 winnerCount;   // Number of winners in this tier
+    }
+
+    /// @notice Tier configurations (set in constructor, immutable-ish via storage)
+    TierConfig[NUM_TIERS] public tiers;
+
+    // ──────────────────────────────────────────────
     //  Lottery State
     // ──────────────────────────────────────────────
 
@@ -61,9 +90,9 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     }
 
     struct Round {
-        uint256 targetPot;
-        uint256 jackpotAmount;     // Accumulated 70% share
+        uint256 prizePool;         // Accumulated 70% share
         uint256 totalTickets;
+        uint256 drawTime;          // Timestamp when draw can occur
         uint256 vrfRequestId;
         bool drawInProgress;
         bool settled;
@@ -72,12 +101,16 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     }
 
     uint256 public currentRoundId;
-    uint256 public ticketPrice;     // In USDC (6 decimals), e.g. 1e6 = $1
-    uint256 public targetPot;       // Target jackpot to trigger draw
+    uint256 public ticketPrice;        // In USDC (6 decimals), e.g. 1e6 = $1
+    uint256 public drawInterval;       // Seconds between draws (default 86400 = 24h)
+    uint256 public minPotForDraw;      // Minimum prize pool to allow a draw
 
     mapping(uint256 => Round) public rounds;
     mapping(uint256 => Ticket[]) internal roundTickets;
     mapping(uint256 => uint256) public vrfRequestToRound;
+
+    /// @notice Player's ticket count per round (for efficient lookup)
+    mapping(uint256 => mapping(address => uint256)) public playerTicketCount;
 
     /// @notice Claimable prizes per user per round
     mapping(uint256 => mapping(address => uint256)) public claimable;
@@ -85,23 +118,28 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     /// @notice Whether user has claimed for a round
     mapping(uint256 => mapping(address => bool)) public claimed;
 
+    /// @notice All winners for a round (populated on settlement)
+    mapping(uint256 => address[]) public roundWinners;
+
+    /// @notice Prize amount per winner for a round
+    mapping(uint256 => uint256[]) public roundPrizes;
+
+    /// @notice Tier index per winner for a round
+    mapping(uint256 => uint256[]) public roundWinnerTiers;
+
     // ──────────────────────────────────────────────
     //  Events
     // ──────────────────────────────────────────────
 
-    event RoundStarted(uint256 indexed roundId, uint256 targetPot, uint256 ticketPrice);
+    event RoundStarted(uint256 indexed roundId, uint256 drawTime, uint256 ticketPrice);
     event TicketPurchased(uint256 indexed roundId, address indexed buyer, uint256 quantity, address referrer);
     event DrawRequested(uint256 indexed roundId, uint256 vrfRequestId);
-    event DrawCompleted(
-        uint256 indexed roundId,
-        address indexed grandWinner,
-        uint256 grandPrize,
-        address[5] secondaryWinners,
-        uint256 secondaryPrize
-    );
+    event DrawCompleted(uint256 indexed roundId, uint256 totalPrizesPaid, uint256 totalWinSharePaid, uint256 winnersCount);
+    event WinnerSelected(uint256 indexed roundId, uint256 tier, address indexed winner, uint256 prize);
     event PrizeClaimed(uint256 indexed roundId, address indexed winner, uint256 amount);
     event TicketPriceUpdated(uint256 newPrice);
-    event TargetPotUpdated(uint256 newTarget);
+    event DrawIntervalUpdated(uint256 newInterval);
+    event MinPotUpdated(uint256 newMinPot);
     event VRFConfigUpdated(uint256 subId, bytes32 keyHash, uint32 callbackGasLimit, uint16 requestConfirmations);
 
     // ──────────────────────────────────────────────
@@ -110,13 +148,13 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
 
     error ZeroQuantity();
     error DrawAlreadyInProgress();
-    error PotNotReached();
+    error DrawNotReady();
     error NoTicketsSold();
     error RoundNotSettled();
     error NothingToClaim();
     error AlreadyClaimed();
     error InvalidTicketPrice();
-    error InvalidTargetPot();
+    error InvalidDrawInterval();
 
     // ──────────────────────────────────────────────
     //  Constructor
@@ -128,7 +166,8 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         address _lpVault,
         address _referralManager,
         uint256 _ticketPrice,
-        uint256 _targetPot,
+        uint256 _drawInterval,
+        uint256 _minPotForDraw,
         uint256 _subscriptionId,
         bytes32 _keyHash,
         uint32 _callbackGasLimit,
@@ -138,18 +177,31 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         lpVault = LPVault(_lpVault);
         referralManager = ReferralManager(_referralManager);
         ticketPrice = _ticketPrice;
-        targetPot = _targetPot;
+        drawInterval = _drawInterval;
+        minPotForDraw = _minPotForDraw;
 
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
         s_callbackGasLimit = _callbackGasLimit;
         s_requestConfirmations = _requestConfirmations;
 
+        // Configure 8 prize tiers
+        //              poolBps  winnerCount
+        tiers[0] = TierConfig(4000, 1);   // Grand:  40%, 1 winner
+        tiers[1] = TierConfig(1500, 1);   // Tier 1: 15%, 1 winner
+        tiers[2] = TierConfig(1000, 1);   // Tier 2: 10%, 1 winner
+        tiers[3] = TierConfig(1000, 2);   // Tier 3: 10%, 2 winners (5% each)
+        tiers[4] = TierConfig( 800, 3);   // Tier 4:  8%, 3 winners (~2.67% each)
+        tiers[5] = TierConfig( 700, 5);   // Tier 5:  7%, 5 winners (1.4% each)
+        tiers[6] = TierConfig( 500, 8);   // Tier 6:  5%, 8 winners (0.625% each)
+        tiers[7] = TierConfig( 500, 13);  // Tier 7:  5%, 13 winners (~0.385% each)
+        // Total: 10000 bps, 34 winners
+
         // Start round 1
         currentRoundId = 1;
-        rounds[1].targetPot = _targetPot;
+        rounds[1].drawTime = block.timestamp + _drawInterval;
 
-        emit RoundStarted(1, _targetPot, _ticketPrice);
+        emit RoundStarted(1, rounds[1].drawTime, _ticketPrice);
     }
 
     // ──────────────────────────────────────────────
@@ -169,18 +221,18 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         usdc.safeTransferFrom(msg.sender, address(this), totalCost);
 
         // Split fees
-        uint256 jackpotShare = (totalCost * JACKPOT_BPS) / 10000;
+        uint256 prizeShare = (totalCost * JACKPOT_BPS) / 10000;
         uint256 lpShare = (totalCost * LP_BPS) / 10000;
-        uint256 referralShare = totalCost - jackpotShare - lpShare; // Remainder to avoid rounding loss
+        uint256 referralShare = totalCost - prizeShare - lpShare; // Remainder to avoid rounding loss
 
-        // Jackpot stays in this contract
-        round.jackpotAmount += jackpotShare;
+        // Prize pool stays in this contract
+        round.prizePool += prizeShare;
 
         // LP yield
         usdc.safeTransfer(address(lpVault), lpShare);
         lpVault.accrueYield(lpShare);
 
-        // Referral
+        // Referral (two-tier purchase fee distribution)
         usdc.safeTransfer(address(referralManager), referralShare);
         referralManager.recordSale(msg.sender, referrer, referralShare);
 
@@ -189,15 +241,16 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
             roundTickets[currentRoundId].push(Ticket({buyer: msg.sender}));
         }
         round.totalTickets += quantity;
+        playerTicketCount[currentRoundId][msg.sender] += quantity;
 
         emit TicketPurchased(currentRoundId, msg.sender, quantity, referrer);
     }
 
     // ──────────────────────────────────────────────
-    //  Chainlink Automation
+    //  Chainlink Automation — Daily Draw Trigger
     // ──────────────────────────────────────────────
 
-    /// @notice Chainlink Automation check: is the pot full and no draw in progress?
+    /// @notice Chainlink Automation check: has draw time passed and are conditions met?
     function checkUpkeep(bytes calldata)
         external
         view
@@ -205,19 +258,26 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         returns (bool upkeepNeeded, bytes memory performData)
     {
         Round storage round = rounds[currentRoundId];
-        upkeepNeeded = round.jackpotAmount >= round.targetPot
+        upkeepNeeded = block.timestamp >= round.drawTime
             && !round.drawInProgress
-            && round.totalTickets > 0;
+            && round.totalTickets > 0
+            && round.prizePool >= minPotForDraw;
         performData = "";
     }
 
-    /// @notice Chainlink Automation perform: request VRF randomness
+    /// @notice Chainlink Automation perform: request VRF randomness for daily draw
     function performUpkeep(bytes calldata) external override {
         Round storage round = rounds[currentRoundId];
 
         if (round.drawInProgress) revert DrawAlreadyInProgress();
-        if (round.jackpotAmount < round.targetPot) revert PotNotReached();
+        if (block.timestamp < round.drawTime) revert DrawNotReady();
         if (round.totalTickets == 0) revert NoTicketsSold();
+        // minPotForDraw check: if pot is too small, skip this draw and extend
+        if (round.prizePool < minPotForDraw) {
+            round.drawTime = block.timestamp + drawInterval;
+            emit RoundStarted(currentRoundId, round.drawTime, ticketPrice);
+            return;
+        }
 
         round.drawInProgress = true;
 
@@ -241,46 +301,74 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
     }
 
     // ──────────────────────────────────────────────
-    //  VRF Callback
+    //  VRF Callback — Multi-Tier Winner Selection
     // ──────────────────────────────────────────────
 
-    /// @notice Chainlink VRF callback: select winners and store claimable prizes
+    /// @notice Chainlink VRF callback: select winners across 8 tiers.
+    ///         Win-share is batched into a single transfer to save gas.
     function fulfillRandomWords(uint256 requestId, uint256[] calldata randomWords) internal override {
         uint256 roundId = vrfRequestToRound[requestId];
         Round storage round = rounds[roundId];
 
         uint256 totalTickets = round.totalTickets;
-        uint256 pot = round.jackpotAmount;
+        uint256 pot = round.prizePool;
 
-        // Grand prize winner
-        uint256 grandWinnerIdx = randomWords[0] % totalTickets;
-        address grandWinner = roundTickets[roundId][grandWinnerIdx].buyer;
-        uint256 grandPrize = (pot * GRAND_PRIZE_BPS) / 10000;
+        // --- Pass 1: Select winners, credit prizes, accumulate win-share ---
+        uint256 totalWinShare;
+        uint256 wordIndex;
 
-        round.grandWinner = grandWinner;
-        round.grandPrize = grandPrize;
-        claimable[roundId][grandWinner] += grandPrize;
+        // Temporary arrays for win-share batch processing
+        address[] memory winners = new address[](TOTAL_WINNERS);
+        uint256[] memory winShares = new uint256[](TOTAL_WINNERS);
 
-        // Secondary winners
-        address[5] memory secondaryWinners;
-        uint256 secondaryPrize = (pot * SECONDARY_PRIZE_BPS) / 10000;
+        for (uint256 t = 0; t < NUM_TIERS; t++) {
+            uint256 tierPool = (pot * tiers[t].poolBps) / 10000;
+            uint256 count = tiers[t].winnerCount;
+            uint256 prizePerWinner = tierPool / count;
+            uint256 winShare = (prizePerWinner * WINSHARE_BPS) / 10000;
+            uint256 netPrize = prizePerWinner - winShare;
 
-        for (uint256 i = 0; i < SECONDARY_PRIZES; i++) {
-            uint256 winnerIdx = randomWords[i + 1] % totalTickets;
-            address winner = roundTickets[roundId][winnerIdx].buyer;
-            secondaryWinners[i] = winner;
-            claimable[roundId][winner] += secondaryPrize;
+            for (uint256 w = 0; w < count; w++) {
+                address winner = roundTickets[roundId][randomWords[wordIndex] % totalTickets].buyer;
+
+                claimable[roundId][winner] += netPrize;
+                winners[wordIndex] = winner;
+                winShares[wordIndex] = winShare;
+                totalWinShare += winShare;
+
+                roundWinners[roundId].push(winner);
+                roundPrizes[roundId].push(netPrize);
+                roundWinnerTiers[roundId].push(t);
+
+                if (wordIndex == 0) {
+                    round.grandWinner = winner;
+                    round.grandPrize = netPrize;
+                }
+
+                emit WinnerSelected(roundId, t, winner, netPrize);
+                wordIndex++;
+            }
+        }
+
+        // --- Pass 2: Batch win-share transfer + per-winner recording ---
+        if (totalWinShare > 0) {
+            usdc.safeTransfer(address(referralManager), totalWinShare);
+            for (uint256 i = 0; i < TOTAL_WINNERS; i++) {
+                if (winShares[i] > 0) {
+                    referralManager.recordWinShare(winners[i], winShares[i]);
+                }
+            }
         }
 
         round.settled = true;
         round.drawInProgress = false;
 
-        emit DrawCompleted(roundId, grandWinner, grandPrize, secondaryWinners, secondaryPrize);
+        emit DrawCompleted(roundId, pot - totalWinShare, totalWinShare, TOTAL_WINNERS);
 
-        // Start next round
+        // Start next round with next draw time
         currentRoundId++;
-        rounds[currentRoundId].targetPot = targetPot;
-        emit RoundStarted(currentRoundId, targetPot, ticketPrice);
+        rounds[currentRoundId].drawTime = block.timestamp + drawInterval;
+        emit RoundStarted(currentRoundId, rounds[currentRoundId].drawTime, ticketPrice);
     }
 
     // ──────────────────────────────────────────────
@@ -311,10 +399,15 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         emit TicketPriceUpdated(_ticketPrice);
     }
 
-    function setTargetPot(uint256 _targetPot) external onlyOwner {
-        if (_targetPot == 0) revert InvalidTargetPot();
-        targetPot = _targetPot;
-        emit TargetPotUpdated(_targetPot);
+    function setDrawInterval(uint256 _drawInterval) external onlyOwner {
+        if (_drawInterval == 0) revert InvalidDrawInterval();
+        drawInterval = _drawInterval;
+        emit DrawIntervalUpdated(_drawInterval);
+    }
+
+    function setMinPotForDraw(uint256 _minPotForDraw) external onlyOwner {
+        minPotForDraw = _minPotForDraw;
+        emit MinPotUpdated(_minPotForDraw);
     }
 
     function updateVRFConfig(
@@ -348,28 +441,46 @@ contract Lottery is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, Reentr
         view
         returns (
             uint256 roundId,
-            uint256 jackpotAmount,
-            uint256 roundTargetPot,
+            uint256 prizePool,
             uint256 totalTickets,
+            uint256 drawTime,
             bool drawInProgress
         )
     {
         Round storage round = rounds[currentRoundId];
-        return (currentRoundId, round.jackpotAmount, round.targetPot, round.totalTickets, round.drawInProgress);
+        return (currentRoundId, round.prizePool, round.totalTickets, round.drawTime, round.drawInProgress);
     }
 
-    /// @notice Get ticket count for a player in a specific round
-    function getPlayerTicketCount(uint256 roundId, address player) external view returns (uint256 count) {
-        Ticket[] storage tickets = roundTickets[roundId];
-        for (uint256 i = 0; i < tickets.length; i++) {
-            if (tickets[i].buyer == player) {
-                count++;
-            }
-        }
+    /// @notice Get ticket count for a player in a specific round (O(1))
+    function getPlayerTicketCount(uint256 roundId, address player) external view returns (uint256) {
+        return playerTicketCount[roundId][player];
     }
 
     /// @notice Get total tickets in a round
     function getRoundTicketCount(uint256 roundId) external view returns (uint256) {
         return roundTickets[roundId].length;
+    }
+
+    /// @notice Get all winners for a settled round
+    function getRoundWinners(uint256 roundId)
+        external
+        view
+        returns (address[] memory winners, uint256[] memory prizes, uint256[] memory tierIndices)
+    {
+        return (roundWinners[roundId], roundPrizes[roundId], roundWinnerTiers[roundId]);
+    }
+
+    /// @notice Get tier configuration
+    function getTierConfig(uint256 tierIndex) external view returns (uint256 poolBps, uint256 winnerCount) {
+        require(tierIndex < NUM_TIERS, "Invalid tier");
+        TierConfig storage tier = tiers[tierIndex];
+        return (tier.poolBps, tier.winnerCount);
+    }
+
+    /// @notice Time remaining until next draw (0 if draw is ready)
+    function timeUntilDraw() external view returns (uint256) {
+        uint256 drawTime = rounds[currentRoundId].drawTime;
+        if (block.timestamp >= drawTime) return 0;
+        return drawTime - block.timestamp;
     }
 }

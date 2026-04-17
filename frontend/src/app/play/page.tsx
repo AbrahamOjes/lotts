@@ -22,7 +22,7 @@ function PlayPageInner() {
   const { isConnected } = useAccount();
   const searchParams = useSearchParams();
   const [quantity, setQuantity] = useState(10);
-  const { jackpotAmount, drawInProgress, ticketPrice } = useLottery();
+  const { prizePool, drawInProgress, ticketPrice } = useLottery();
   const {
     buyTickets,
     executeBuy,
@@ -59,7 +59,7 @@ function PlayPageInner() {
           Prize Pool
         </p>
         <h1 className="jackpot-number text-5xl sm:text-6xl font-black leading-none">
-          {formatUSD(jackpotAmount)}
+          {formatUSD(prizePool)}
         </h1>
       </div>
 

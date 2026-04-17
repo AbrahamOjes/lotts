@@ -61,10 +61,11 @@ contract DeployTestnet is Script {
             address(lpVault),
             address(referralManager),
             1e6,    // $1 ticket
-            700e6,  // $700 target pot
+            86400,  // 24h draw interval
+            100e6,  // $100 min pot for draw
             subId,
             bytes32(0), // keyHash (any for mock)
-            500000,     // callbackGasLimit
+            10_000_000, // callbackGasLimit (34 winners + win-share)
             3           // requestConfirmations
         );
         console.log("Lottery deployed:", address(lottery));

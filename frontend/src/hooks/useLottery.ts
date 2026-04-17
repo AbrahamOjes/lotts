@@ -11,7 +11,7 @@ export function useLottery() {
     query: { refetchInterval: 10_000 },
   });
 
-  const [roundId, jackpotAmount, targetPot, totalTickets, drawInProgress] =
+  const [roundId, prizePool, totalTickets, drawTime, drawInProgress] =
     (data as [bigint, bigint, bigint, bigint, boolean]) ?? [0n, 0n, 0n, 0n, false];
 
   const ticketPrice = useReadContract({
@@ -20,13 +20,28 @@ export function useLottery() {
     functionName: "ticketPrice",
   });
 
+  const timeUntilDraw = useReadContract({
+    address: CONTRACTS.lottery,
+    abi: ABIS.lottery,
+    functionName: "timeUntilDraw",
+    query: { refetchInterval: 5_000 },
+  });
+
+  const drawInterval = useReadContract({
+    address: CONTRACTS.lottery,
+    abi: ABIS.lottery,
+    functionName: "drawInterval",
+  });
+
   return {
     roundId,
-    jackpotAmount,
-    targetPot,
+    prizePool,
     totalTickets,
+    drawTime,
     drawInProgress,
     ticketPrice: (ticketPrice.data as bigint) ?? 1_000_000n,
+    timeUntilDraw: (timeUntilDraw.data as bigint) ?? 0n,
+    drawInterval: (drawInterval.data as bigint) ?? 86400n,
     isLoading,
     refetch,
   };

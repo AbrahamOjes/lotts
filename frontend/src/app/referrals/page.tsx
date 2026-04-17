@@ -10,29 +10,18 @@ export default function ReferralsPage() {
   const { address, isConnected } = useAccount();
   const [copied, setCopied] = useState(false);
 
-  const { data: pendingCommission } = useReadContract({
+  const { data: statsData } = useReadContract({
     address: CONTRACTS.referralManager,
     abi: ABIS.referralManager,
-    functionName: "pendingCommission",
+    functionName: "getReferrerStats",
     args: address ? [address] : undefined,
     query: { enabled: !!address, refetchInterval: 15_000 },
   });
 
-  const { data: totalEarned } = useReadContract({
-    address: CONTRACTS.referralManager,
-    abi: ABIS.referralManager,
-    functionName: "totalEarned",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+  const [pending, earnedPurchases, earnedWinShare, directRefs, tier2Refs] =
+    (statsData as [bigint, bigint, bigint, bigint, bigint]) ?? [0n, 0n, 0n, 0n, 0n];
 
-  const { data: referralCount } = useReadContract({
-    address: CONTRACTS.referralManager,
-    abi: ABIS.referralManager,
-    functionName: "referralCount",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
+  const totalEarned = earnedPurchases + earnedWinShare;
 
   const { writeContract: claim, isPending: isClaiming } = useWriteContract();
 
@@ -59,7 +48,8 @@ export default function ReferralsPage() {
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold text-slate-900">Referrals</h1>
         <p className="mt-2 text-sm text-slate-400">
-          Earn 10% of every ticket purchased through your referral link.
+          Earn from ticket sales <strong>and</strong> when your referrals win.
+          Two-tier system: earn from your direct referrals and their referrals too.
         </p>
       </div>
 
@@ -88,40 +78,62 @@ export default function ReferralsPage() {
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Network Stats */}
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-white border border-slate-200 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-slate-900">
-                {(referralCount as bigint)?.toString() ?? "0"}
-              </p>
-              <p className="text-xs text-slate-400">Referrals</p>
+              <p className="text-2xl font-bold text-slate-900">{directRefs.toString()}</p>
+              <p className="text-xs text-slate-400">Direct Referrals</p>
             </div>
             <div className="rounded-2xl bg-white border border-slate-200 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-slate-900">
-                {formatUSD((totalEarned as bigint) ?? 0n)}
-              </p>
-              <p className="text-xs text-slate-400">Total Earned</p>
-            </div>
-            <div className="rounded-2xl bg-white border border-slate-200 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-emerald-600">
-                {formatUSD((pendingCommission as bigint) ?? 0n)}
-              </p>
-              <p className="text-xs text-slate-400">Claimable</p>
+              <p className="text-2xl font-bold text-slate-900">{tier2Refs.toString()}</p>
+              <p className="text-xs text-slate-400">Tier 2 Referrals</p>
             </div>
           </div>
 
+          {/* Earnings breakdown */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">From ticket sales</span>
+              <span className="font-semibold text-slate-900">{formatUSD(earnedPurchases)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">From winner prizes</span>
+              <span className="font-semibold text-slate-900">{formatUSD(earnedWinShare)}</span>
+            </div>
+            <div className="border-t border-slate-100 pt-3 flex justify-between text-sm">
+              <span className="font-semibold text-slate-700">Total earned</span>
+              <span className="font-bold text-slate-900">{formatUSD(totalEarned)}</span>
+            </div>
+          </div>
+
+          {/* Claimable */}
+          <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 p-5 text-center shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-1">
+              Claimable
+            </p>
+            <p className="text-3xl font-bold text-indigo-700">{formatUSD(pending)}</p>
+          </div>
+
           {/* Claim */}
-          {(pendingCommission as bigint) > 0n && (
+          {pending > 0n && (
             <button
               onClick={claimCommission}
               disabled={isClaiming}
               className="btn-primary w-full"
             >
-              {isClaiming
-                ? "Claiming..."
-                : `Claim ${formatUSD((pendingCommission as bigint) ?? 0n)}`}
+              {isClaiming ? "Claiming..." : `Claim ${formatUSD(pending)}`}
             </button>
           )}
+
+          {/* How it works */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+            <p className="text-sm font-semibold text-slate-700 mb-3">How referral earnings work</p>
+            <div className="space-y-2 text-xs text-slate-500">
+              <p><strong className="text-slate-700">Ticket sales:</strong> Earn 8% (tier 1) or 2% (tier 2) of ticket revenue from your network.</p>
+              <p><strong className="text-slate-700">Winner prizes:</strong> When someone you referred wins, earn 8% (tier 1) or 2% (tier 2) of their prize.</p>
+              <p><strong className="text-slate-700">Sticky referrals:</strong> Once someone is your referral, they stay your referral forever.</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
